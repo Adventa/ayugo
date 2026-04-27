@@ -2,9 +2,10 @@ import json
 import os
 from typing import Any, Literal
 
-from anthropic import Anthropic
-from fastapi import FastAPI, Header, HTTPException
+from anthropic import Anthropic, APIStatusError
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -30,6 +31,24 @@ def check_auth(authorization: str | None) -> None:
     expected = f"Bearer {API_SECRET}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.exception_handler(APIStatusError)
+async def handle_anthropic_error(request: Request, exc: APIStatusError) -> JSONResponse:
+    detail = str(exc)
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            detail = err["message"]
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": "anthropic_error",
+            "upstream_status": exc.status_code,
+            "detail": detail,
+        },
+    )
 
 
 # ---------- shared models ----------
